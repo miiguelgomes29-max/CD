@@ -1,0 +1,658 @@
+<?php
+// Ficheiro onde os Post-its dos grupos serão guardados automaticamente
+$ficheiroDados = __DIR__ . '/postits.json';
+
+// Inicializa o ficheiro com exemplos caso ainda não exista
+if (!file_exists($ficheiroDados)) {
+    $exemplos = [
+        [
+            'id' => uniqid(),
+            'grupo' => 'Grupo Exemplo (Saúde & Bem-Estar)',
+            'problema' => 'Dificuldade de acesso a informação clara sobre apoio psicológico para jovens no concelho.',
+            'importancia' => 'Permite reduzir o estigma, prevenir situações de agravamento emocional e encaminhar os jovens mais rapidamente para ajuda especializada.',
+            'cor' => 'amarelo',
+            'data' => date('d/m/Y H:i')
+        ]
+    ];
+    file_put_contents($ficheiroDados, json_encode($exemplos, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+$postits = json_decode(file_get_contents($ficheiroDados), true) ?? [];
+
+// Processar novo Post-it submetido pelo formulário
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['acao'] === 'adicionar') {
+    $grupo = trim($_POST['grupo'] ?? '');
+    $problema = trim($_POST['problema'] ?? '');
+    $importancia = trim($_POST['importancia'] ?? '');
+    $cor = in_array($_POST['cor'] ?? '', ['amarelo', 'azul', 'verde', 'rosa']) ? $_POST['cor'] : 'amarelo';
+
+    if ($grupo !== '' && $problema !== '' && $importancia !== '') {
+        array_unshift($postits, [
+            'id' => uniqid(),
+            'grupo' => $grupo,
+            'problema' => $problema,
+            'importancia' => $importancia,
+            'cor' => $cor,
+            'data' => date('d/m/Y H:i')
+        ]);
+        file_put_contents($ficheiroDados, json_encode($postits, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    }
+
+    // Padrão Post-Redirect-Get para evitar duplicação ao atualizar a página
+    header('Location: ' . $_SERVER['PHP_SELF'] . '#mural');
+    exit;
+}
+
+// Estrutura de dados do Guião de Entrevistas por Entidade
+$entidades = [
+    'medicos' => [
+        'titulo' => 'Médicos',
+        'foco' => 'Diagnóstico, prevenção, impacto clínico e barreiras no acesso aos cuidados.',
+        'perguntas' => [
+            'Com que frequência se depara com este problema na sua prática clínica diária?',
+            'Quais são as principais consequências para a saúde dos utentes quando o problema não é resolvido atempadamente?',
+            'Que falhas existem atualmente na prevenção ou no encaminhamento destes casos?',
+            'Na sua opinião, que tipo de solução prática poderia complementar o trabalho médico no terreno?'
+        ]
+    ],
+    'enfermeiros' => [
+        'titulo' => 'Enfermeiros',
+        'foco' => 'Acompanhamento de proximidade, literacia em saúde e adesão dos utentes.',
+        'perguntas' => [
+            'No contacto direto e continuado com os utentes, quais são as maiores dificuldades que observa relacionadas com este tema?',
+            'Sente que existe falta de informação ou literacia por parte da população afetada?',
+            'Que estratégias de sensibilização ou acompanhamento funcionam melhor na prática?',
+            'Como é que o nosso projeto poderia facilitar o vosso trabalho junto da comunidade?'
+        ]
+    ],
+    'camara' => [
+        'titulo' => 'Técnicos da Câmara Municipal',
+        'foco' => 'Políticas locais, infraestruturas, regulamentos e articulação comunitária.',
+        'perguntas' => [
+            'Este problema já está identificado nos diagnósticos sociais ou planos estratégicos do município?',
+            'Que respostas, programas ou apoios municipais já existem para mitigar esta situação?',
+            'Quais são os principais entraves logísticos, legais ou orçamentais para resolver este problema a nível local?',
+            'De que forma um projeto jovem/comunitário pode articular-se com os serviços da Câmara?'
+        ]
+    ],
+    'empresarios' => [
+        'titulo' => 'Empresários',
+        'foco' => 'Sustentabilidade económica, inovação, impacto no tecido empresarial e parcerias.',
+        'perguntas' => [
+            'De que forma este problema afeta direta ou indiretamente as empresas, trabalhadores ou clientes da região?',
+            'Já tentaram implementar alguma medida interna para lidar com esta questão? Que resultados obtiveram?',
+            'O que tornaria uma solução atrativa e viável para o setor empresarial apoiar ou adotar?',
+            'Que competências ou recursos as empresas locais poderiam disponibilizar para ajudar a resolver este desafio?'
+        ]
+    ],
+    'associacoes' => [
+        'titulo' => 'Associações',
+        'foco' => 'Dinamização comunitária, voluntariado, proximidade e mobilização cívica.',
+        'perguntas' => [
+            'Como é que a associação sente o impacto deste problema junto dos seus associados e da população local?',
+            'Que iniciativas comunitárias já desenvolveram nesta área e qual foi a adesão das pessoas?',
+            'Quais são as maiores dificuldades na mobilização de voluntários ou participantes?',
+            'Como podemos criar sinergias entre o nosso projeto e as atividades da vossa associação?'
+        ]
+    ],
+    'ipss' => [
+        'titulo' => 'IPSS (Instituições Particulares de Solidariedade Social)',
+        'foco' => 'Respostas sociais no terreno, grupos vulneráveis e sustentabilidade dos apoios.',
+        'perguntas' => [
+            'Quem são os públicos mais afetados por este problema nas valências da vossa instituição?',
+            'As respostas sociais atuais são suficientes para dar conta dos pedidos de ajuda que recebem?',
+            'Onde sentem que existe maior lacuna: recursos humanos, financiamento, divulgação ou articulação em rede?',
+            'Que características teria uma ferramenta ou projeto ideal para apoiar os vossos utentes e equipas?'
+        ]
+    ],
+    'assistentes_sociais' => [
+        'titulo' => 'Assistentes Sociais',
+        'foco' => 'Vulnerabilidade socioeconómica, acesso a direitos e redes de suporte familiar.',
+        'perguntas' => [
+            'Quais são os fatores sociais e económicos que mais agravam este problema nas famílias que acompanha?',
+            'Que barreiras burocráticas ou de acesso impedem as pessoas de chegar aos apoios existentes?',
+            'Como funciona atualmente a articulação entre as diferentes entidades locais na resolução destes casos?',
+            'Que cuidados éticos e práticos devemos ter ao desenhar uma solução para este público?'
+        ]
+    ],
+    'psicologos' => [
+        'titulo' => 'Psicólogos',
+        'foco' => 'Impacto emocional, comportamento, motivação e combate ao estigma.',
+        'perguntas' => [
+            'Qual é o impacto psicológico e emocional deste problema nas pessoas diretamente afetadas?',
+            'Que fatores comportamentais ou preconceitos dificultam a procura de ajuda ou a mudança de hábitos?',
+            'Que abordagem de comunicação devemos usar para que a nossa solução seja acolhedora e eficaz?',
+            'Como podemos avaliar se o nosso projeto está realmente a gerar bem-estar e mudança positiva?'
+        ]
+    ]
+];
+?>
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dinâmica de Projeto — Resolver Problemas Reais</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --text: #1e293b;
+            --muted: #64748b;
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --border: #e2e8f0;
+            --card-bg: #ffffff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Hero Section */
+        header.hero {
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+            color: #ffffff;
+            padding: 4rem 1.5rem;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 0.35rem 1rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+
+        header.hero h1 {
+            font-size: clamp(1.8rem, 4vw, 3rem);
+            max-width: 800px;
+            margin: 0 auto 1rem;
+            line-height: 1.2;
+        }
+
+        header.hero p {
+            font-size: 1.15rem;
+            color: #cbd5e1;
+            max-width: 650px;
+            margin: 0 auto 2rem;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+            transition: transform 0.15s ease, background-color 0.15s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-primary {
+            background-color: #facc15;
+            color: #0f172a;
+        }
+
+        .btn-secondary {
+            background-color: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        /* Layout Container */
+        .container {
+            max-width: 1150px;
+            margin: 0 auto;
+            padding: 3rem 1.5rem;
+        }
+
+        section {
+            margin-bottom: 4rem;
+        }
+
+        .section-header {
+            margin-bottom: 2rem;
+            border-left: 4px solid var(--primary);
+            padding-left: 1rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.75rem;
+            color: #0f172a;
+        }
+
+        .section-header p {
+            color: var(--muted);
+        }
+
+        /* Dinâmica / Mural Grid */
+        .mural-layout {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 2rem;
+            align-items: start;
+        }
+
+        @media (max-width: 850px) {
+            .mural-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .form-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+            border: 1px solid var(--border);
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.65rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.5rem;
+            font-family: inherit;
+            font-size: 0.95rem;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 90px;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: var(--primary);
+            color: #ffffff;
+        }
+
+        .btn-submit:hover {
+            background-color: var(--primary-dark);
+        }
+
+        /* Post-its Grid */
+        .postits-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .postit {
+            padding: 1.25rem;
+            border-radius: 0.25rem 0.25rem 1.25rem 0.25rem;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+            position: relative;
+            transition: transform 0.2s ease;
+        }
+
+        .postit:hover {
+            transform: scale(1.02);
+        }
+
+        .postit.amarelo { background-color: #fef08a; border-top: 6px solid #eab308; }
+        .postit.azul    { background-color: #bae6fd; border-top: 6px solid #0284c7; }
+        .postit.verde   { background-color: #bbf7d0; border-top: 6px solid #16a34a; }
+        .postit.rosa    { background-color: #fbcfe8; border-top: 6px solid #db2777; }
+
+        .postit-grupo {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+            color: #0f172a;
+        }
+
+        .postit-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            opacity: 0.7;
+            margin-top: 0.6rem;
+        }
+
+        .postit-texto {
+            font-size: 0.92rem;
+            color: #1e293b;
+        }
+
+        .postit-meta {
+            margin-top: 1rem;
+            font-size: 0.75rem;
+            opacity: 0.65;
+            text-align: right;
+        }
+
+        /* Guião de Entrevistas */
+        .guiao-estrutura {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .step-box {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 0.6rem;
+            padding: 1rem;
+        }
+
+        .step-box span {
+            display: inline-block;
+            background: #dbeafe;
+            color: var(--primary-dark);
+            font-weight: 700;
+            font-size: 0.8rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.3rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .step-box h4 {
+            font-size: 1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-box p {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .tabs-entidades {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .tab-btn {
+            background: #e2e8f0;
+            color: #334155;
+            border: none;
+            padding: 0.6rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .tab-btn.active,
+        .tab-btn:hover {
+            background: var(--primary);
+            color: #ffffff;
+        }
+
+        .entidade-panel {
+            display: none;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .entidade-panel.active {
+            display: block;
+        }
+
+        .entidade-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .entidade-foco {
+            background: #f1f5f9;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.92rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .lista-perguntas {
+            padding-left: 1.25rem;
+        }
+
+        .lista-perguntas li {
+            margin-bottom: 0.75rem;
+            font-size: 1rem;
+        }
+
+        .btn-print {
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 0.85rem;
+            padding: 0.5rem 1rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border);
+        }
+
+        @media print {
+            header.hero, #mural, .tabs-entidades, .btn-print, footer {
+                display: none !important;
+            }
+            .entidade-panel {
+                display: block !important;
+                border: none;
+                box-shadow: none;
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="hero">
+        <div class="hero-badge">Dinâmica de Pequeno Grupo</div>
+        <h1>"Um bom projeto resolve um problema real."</h1>
+        <p>Partilhem no mural porque é urgente resolver o problema que identificaram e preparem o guião de entrevistas para validar a ideia no terreno.</p>
+        <div class="hero-actions">
+            <a href="#mural" class="btn btn-primary">1. Colar Post-it no Mural</a>
+            <a href="#guiao" class="btn btn-secondary">2. Produto: Guião de Entrevistas</a>
+        </div>
+    </header>
+
+    <main class="container">
+
+        <!-- SECÇÃO 1: DINÂMICA POST-IT / PADLET -->
+        <section id="mural">
+            <div class="section-header">
+                <h2>1. Mural Colaborativo (Post-its)</h2>
+                <p>Cada grupo responde em relação ao problema já identificado: <strong>Porque é importante resolvê-lo?</strong></p>
+            </div>
+
+            <div class="mural-layout">
+                <div class="form-card">
+                    <form method="POST" action="#mural">
+                        <input type="hidden" name="acao" value="adicionar">
+
+                        <div class="form-group">
+                            <label for="grupo">Nome do Grupo / Equipa</label>
+                            <input type="text" id="grupo" name="grupo" placeholder="Ex: Grupo 3 - Inovação Social" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="problema">Problema Identificado</label>
+                            <textarea id="problema" name="problema" placeholder="Qual é o problema real que querem resolver?" required></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="importancia">Porque é importante resolvê-lo?</label>
+                            <textarea id="importancia" name="importancia" placeholder="Quem sofre com este problema? O que muda na comunidade se for resolvido?" required></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cor">Cor do Post-it</label>
+                            <select id="cor" name="cor">
+                                <option value="amarelo">Amarelo</option>
+                                <option value="azul">Azul</option>
+                                <option value="verde">Verde</option>
+                                <option value="rosa">Rosa</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-submit">Adicionar Post-it ao Mural</button>
+                    </form>
+                </div>
+
+                <div class="postits-grid">
+                    <?php foreach ($postits as $item): ?>
+                        <article class="postit <?= htmlspecialchars($item['cor']) ?>">
+                            <div class="postit-grupo"><?= htmlspecialchars($item['grupo']) ?></div>
+                            
+                            <div class="postit-label">Problema:</div>
+                            <p class="postit-texto"><?= nl2br(htmlspecialchars($item['problema'])) ?></p>
+                            
+                            <div class="postit-label">Porque é importante resolvê-lo?</div>
+                            <p class="postit-texto"><?= nl2br(htmlspecialchars($item['importancia'])) ?></p>
+                            
+                            <div class="postit-meta"><?= htmlspecialchars($item['data']) ?></div>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECÇÃO 2: PRODUTO - GUIÃO DE ENTREVISTAS -->
+        <section id="guiao">
+            <div class="section-header">
+                <h2>2. Produto: Guião de Entrevistas por Entidade</h2>
+                <p>Selecione a entidade que o grupo vai consultar para obter as perguntas-chave e imprimir o guião.</p>
+            </div>
+
+            <!-- Estrutura Base de Qualquer Entrevista -->
+            <div class="guiao-estrutura">
+                <div class="step-box">
+                    <span>Passo 1 (2 min)</span>
+                    <h4>Apresentação</h4>
+                    <p>Explicar quem são, o objetivo do projeto e pedir autorização para registar notas.</p>
+                </div>
+                <div class="step-box">
+                    <span>Passo 2 (10 min)</span>
+                    <h4>Explorar o Problema</h4>
+                    <p>Usar as perguntas abaixo para ouvir a experiência real sem induzir respostas.</p>
+                </div>
+                <div class="step-box">
+                    <span>Passo 3 (5 min)</span>
+                    <h4>Validar Ideias</h4>
+                    <p>Perguntar o que já foi tentado e que características uma boa solução deve ter.</p>
+                </div>
+                <div class="step-box">
+                    <span>Passo 4 (3 min)</span>
+                    <h4>Fecho e Rede</h4>
+                    <p>Agradecer e perguntar: <em>"Que outra pessoa ou entidade nos recomenda entrevistar?"</em></p>
+                </div>
+            </div>
+
+            <!-- Separadores das 8 Entidades -->
+            <div class="tabs-entidades" role="tablist">
+                <?php $primeira = true; ?>
+                <?php foreach ($entidades as $chave => $dados): ?>
+                    <button 
+                        type="button" 
+                        class="tab-btn <?= $primeira ? 'active' : '' ?>" 
+                        onclick="mostrarEntidade('<?= $chave ?>', this)">
+                        <?= htmlspecialchars($dados['titulo']) ?>
+                    </button>
+                    <?php $primeira = false; ?>
+                <?php endforeach; ?>
+            </div>
+
+            <!-- Conteúdo de cada Entidade -->
+            <?php $primeira = true; ?>
+            <?php foreach ($entidades as $chave => $dados): ?>
+                <div id="panel-<?= $chave ?>" class="entidade-panel <?= $primeira ? 'active' : '' ?>">
+                    <div class="entidade-header">
+                        <div>
+                            <h3>Guião para: <?= htmlspecialchars($dados['titulo']) ?></h3>
+                        </div>
+                        <button type="button" class="btn btn-print" onclick="window.print()">Imprimir / Guardar PDF</button>
+                    </div>
+
+                    <div class="entidade-foco">
+                        <strong>Foco principal desta entrevista:</strong> <?= htmlspecialchars($dados['foco']) ?>
+                    </div>
+
+                    <ol class="lista-perguntas">
+                        <?php foreach ($dados['perguntas'] as $pergunta): ?>
+                            <li><?= htmlspecialchars($pergunta) ?></li>
+                        <?php endforeach; ?>
+                        <li><strong>Pergunta de encerramento:</strong> Considerando a vossa experiência, qual seria o maior erro a evitar na construção deste projeto?</li>
+                    </ol>
+                </div>
+                <?php $primeira = false; ?>
+            <?php endforeach; ?>
+        </section>
+
+    </main>
+
+    <footer>
+        Dinâmica de Grupo • Da identificação do problema à auscultação da comunidade
+    </footer>
+
+    <script>
+        function mostrarEntidade(chave, botao) {
+            document.querySelectorAll('.entidade-panel').forEach(panel => {
+                panel.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            document.getElementById('panel-' + chave).classList.add('active');
+            botao.classList.add('active');
+        }
+    </script>
+</body>
+</html>
